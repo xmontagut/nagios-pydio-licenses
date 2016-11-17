@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-# Xavier Montagutelli <axvier.montagutelli@unilim.fr>
+# Xavier Montagutelli <xavier.montagutelli@unilim.fr>
 # Inspired from check_vmware_api
 #
 # alerts if the license is about to expire, or if the number of users is too close from the maximum allowed.
