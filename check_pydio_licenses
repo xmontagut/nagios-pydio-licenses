@@ -1,0 +1,146 @@
+#!/usr/bin/perl -w
+#
+# Xavier Montagutelli <axvier.montagutelli@unilim.fr>
+# Inspired from check_vmware_api
+#
+# alerts if the license is about to expire, or if the number of users is too close from the maximum allowed.
+#
+# FIXME : 
+# - don't fix the timeout value here, use the Nagios::Plugin option
+# - use nagios_exit()
+# - implements warning, not only error state !
+#
+package CheckPydioLicenses;
+#
+use strict;
+use POSIX;
+use REST::Client;
+use JSON;
+use File::Basename;
+use MIME::Base64;
+use Date::Parse;
+use Time::Format qw(%strftime);
+use vars qw($PROGNAME $VERSION $output $values $result $defperfargs);
+
+use Nagios::Plugin::Functions qw(%STATUS_TEXT);
+use Nagios::Plugin;
+
+#
+# CONFIGURATION - Default values
+#
+my %conf = (
+        timeout => 8,
+        warnDays => 30,
+        usersThreshold => 1000,
+);
+
+sub main {
+        $PROGNAME = basename($0);
+        $VERSION = "0.1";
+        my $np = Nagios::Plugin->new(
+                usage => "Usage : %s -H <host_name> -u <user> -p <password> [-v] [-d <warn_days>] [-T <lic_threshold>] [-t <timeout>]",
+                version => $VERSION,
+                plugin  => $PROGNAME,
+                shortname => uc($PROGNAME),
+                blurb => 'Pydio license',
+                timeout => 10,
+        );
+        $np->add_arg(
+                spec => 'host|H=s',
+                help => "-H, --host=<hostname>\n"
+                . '   Pydio server (hostname)',
+                required => 1,
+        );
+        $np->add_arg(
+                spec => 'user|u=s',
+                help => "-u, --user=<user>\n"
+                . '   Login username',
+                required => 1,
+        );
+        $np->add_arg(
+                spec => 'password|p=s',
+                help => "-p, --password=<password>\n"
+                . '   Login password',
+                required => 1,
+        );
+        $np->add_arg(
+                spec => 'days|d=s',
+                help => "-d, --days=<warn_days>\n"
+                . '   Number of days before the end of license raising an alarm',
+                required => 0,
+        );
+        $np->add_arg(
+                spec => 'users_threshold|T=s',
+                help => "-T, --users_threshold=<n>\n"
+                . '   Number of free licenses before raising an alarm',
+                required => 0,
+        );
+        # $np->add_arg(
+        #       spec => 'verbose|v',
+        #       help => "-v, --verbose\n"
+        #       . '   Print verbose messages on stdout.',
+        #       required => 0,
+        # );
+
+        $np->getopts;
+
+        my $optHost = $np->opts->host;
+        my $optUser = $np->opts->user;
+        my $optPass = $np->opts->password;
+        my $optVerbose = $np->opts->verbose;
+        my $optWarnDays = $np->opts->days ? $np->opts->days : $conf{warnDays};
+        my $optTimeout = $np->opts->timeout ? $np->opts->timeout : $conf{timeout};
+        my $optUsersThreshold = $np->opts->users_threshold ? $np->opts->users_threshold : $conf{usersThreshold};
+
+        #
+        # Connect to Pydio REST
+        #
+        my $client;
+        my $baseUrl = "https://$optHost";
+        my $url = "/api/settings/licence_get_figures";
+        my $response;
+        eval {
+                local $SIG{ALRM} = sub { die "Delai attente depasse\n" };
+                alarm $optTimeout;
+                print "Connecting to Pydio server ($baseUrl) (User $optUser, Timeout $optTimeout)\n" if ($optVerbose);
+                $client = REST::Client->new();
+                $client->setHost($baseUrl);
+                $client->addHeader(Authorization => 'Basic ' . encode_base64("$optUser:$optPass"));
+                $client->addHeader(Accept => 'application/json');
+                $response = $client->GET($url);
+                die "Erreur de connexion. Code HTTP : " . $client->responseCode() . "\n" . $client->responseContent() if ($client->responseCode() !=  200);
+
+                alarm 0;
+                1;
+        }; # END EVAL
+        if ($@) {
+                print "CRITICAL: $@";
+                exit CRITICAL;
+        }
+
+        my $json = JSON->new->allow_nonref;
+        my $ref = $json->decode( $client->responseContent() );
+
+        my $expirationYMD = $ref->{expiration}->{date}; # date expiration : AAAA-MM-JJ
+        my $expirationEpoch = str2time($expirationYMD);
+        if ($expirationEpoch < time - $optWarnDays * 24 * 3600) {
+                print "CRITICAL : Fin des licences le $expirationYMD\n";
+                exit CRITICAL;
+        }
+
+        my $usersMax = $ref->{users}->{max_allowed};
+        my $usersTotal = $ref->{users}->{total};
+        if ( $usersTotal > $usersMax - $optUsersThreshold) {
+                print "Licenses used : $usersTotal / $usersMax\n";
+                exit CRITICAL;
+        }
+
+        print "OK\n";
+        exit OK;
+
+} # sub main
+
+main unless defined caller;
+
+1;
+
