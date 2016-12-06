@@ -15,6 +15,7 @@ package CheckPydioLicenses;
 use strict;
 use POSIX;
 use REST::Client;
+use IO::Socket::SSL qw( SSL_VERIFY_NONE );
 use JSON;
 use File::Basename;
 use MIME::Base64;
@@ -105,6 +106,9 @@ sub main {
                 print "Connecting to Pydio server ($baseUrl) (User $optUser, Timeout $optTimeout)\n" if ($optVerbose);
                 $client = REST::Client->new();
                 $client->setHost($baseUrl);
+                # don't verify SSL certs                                                                                                        
+                $client->getUseragent()->ssl_opts(verify_hostname => 0);
+                $client->getUseragent()->ssl_opts(SSL_verify_mode => SSL_VERIFY_NONE);
                 $client->addHeader(Authorization => 'Basic ' . encode_base64("$optUser:$optPass"));
                 $client->addHeader(Accept => 'application/json');
                 $response = $client->GET($url);
