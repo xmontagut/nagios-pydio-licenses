@@ -121,21 +121,22 @@ sub main {
         my $json = JSON->new->allow_nonref;
         my $ref = $json->decode( $client->responseContent() );
 
+        my $usersMax = $ref->{users}->{max_allowed};
+        my $usersTotal = $ref->{users}->{total};
+
         my $expirationYMD = $ref->{expiration}->{date}; # date expiration : AAAA-MM-JJ
         my $expirationEpoch = str2time($expirationYMD);
         if ($expirationEpoch < time - $optWarnDays * 24 * 3600) {
-                print "CRITICAL : Fin des licences le $expirationYMD\n";
+                print "CRITICAL : Fin des licences le $expirationYMD | users=$usersTotal maxUsers=$usersMax\n";
                 exit CRITICAL;
         }
 
-        my $usersMax = $ref->{users}->{max_allowed};
-        my $usersTotal = $ref->{users}->{total};
         if ( $usersTotal > $usersMax - $optUsersThreshold) {
-                print "Licenses used : $usersTotal / $usersMax\n";
+                print "Licenses used : $usersTotal / $usersMax | users=$usersTotal maxUsers=$usersMax\n";
                 exit CRITICAL;
         }
 
-        print "OK\n";
+        print "OK | users=$usersTotal maxUsers=$usersMax\n";
         exit OK;
 
 } # sub main
